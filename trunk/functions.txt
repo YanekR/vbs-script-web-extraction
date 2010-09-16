@@ -1,0 +1,194 @@
+Option Explicit
+Option Compare Text
+
+Const cForm_name As Long = 1
+Const cForm_Id As Long = 2
+Const cElement_Name As Long = 3
+Const cElement_ID As Long = 4
+Const cElement_nodeName As Long = 5
+Const cElement_Type As Long = 6
+Const cElement_Value As Long = 7
+Const cElement_SetValue As Long = 8
+
+Sub SetFields()
+On Error Resume Next
+Dim objIE As Object
+Dim objParent As Object
+Dim objInputElement As Object
+Dim lngRow As Long
+
+Set objIE = GetIEApp
+'Make sure an IE object was hooked
+If TypeName(objIE) = "Nothing" Then
+  MsgBox "Could not hook Internet Explorer object", vbCritical, "GetFields() Error"
+  GoTo Clean_Up
+End If
+
+For lngRow = 2 To ActiveSheet.UsedRange.Rows.Count
+  If ActiveSheet.Cells(lngRow, cElement_SetValue) <> "" Then
+    'If we have a parent name/ID drill to that element, otherwise point to whole document
+    If ActiveSheet.Cells(lngRow, cForm_name).Text <> "" Then
+      Set objParent = objIE.Document.Forms(ActiveSheet.Cells(lngRow, cForm_name).Text)
+    ElseIf ActiveSheet.Cells(lngRow, cForm_Id).Text <> "" Then
+      Set objParent = objIE.Document.Forms(ActiveSheet.Cells(lngRow, cForm_Id).Text)
+    Else
+      Set objParent = objIE.Document.All
+    End If
+    With objParent
+      If ActiveSheet.Cells(lngRow, cElement_Type) = "radio" Then
+        Set objInputElement = objParent.Tags("INPUT").Item(ActiveSheet.Cells(lngRow, 
+
+cElement_Name).Text)
+        objInputElement.Item(ActiveSheet.Cells(lngRow, cElement_ID).Text).Checked = True
+        Set objInputElement = Nothing
+      ElseIf ActiveSheet.Cells(lngRow, cElement_Type) = "checkbox" Then
+        objParent.Item(ActiveSheet.Cells(lngRow, cElement_ID).Text).Checked = True
+      Else
+        objParent.Item(ActiveSheet.Cells(lngRow, cElement_Name).Text).Value = CStr(ActiveSheet.Cells(lngRow, 
+
+cElement_SetValue))
+      End If
+    End With
+    If Err.Number <> 0 Then
+      Debug.Print "Error Writting: Row " & lngRow, ActiveSheet.Cells(lngRow, cElement_Name), 
+
+ActiveSheet.Cells(lngRow, cElement_SetValue)
+      Err.Clear
+    End If
+  End If
+Next lngRow
+Clean_Up:
+Set objParent = Nothing
+Set objIE = Nothing
+End Sub
+
+Sub GetFields()
+On Error GoTo GetFields_Error
+Dim objIE As Object
+Dim objForms As Object, objForm As Object
+Dim objInputElement As Object
+Dim objOption As Object
+Dim lngRow As Long
+Dim strComment As String
+
+Set objIE = GetIEApp
+'Make sure an IE object was hooked
+If TypeName(objIE) = "Nothing" Then
+  MsgBox "Could not hook Internet Explorer object", vbCritical, "GetFields() Error"
+  GoTo Clean_Up
+End If
+
+'In case the sheet is being resused, clear it
+ClearActiveSheet
+
+'Get the forms object
+Set objForms = objIE.Document.Forms
+'Test to see if there are forms before proceding
+If objForms.Length <> 0 Then
+  'Write the header
+  lngRow = lngRow + 1
+  With ActiveSheet
+    .Cells(lngRow, cForm_name) = "Form_Name"
+    .Cells(lngRow, cForm_Id) = "Form_ID"
+    .Cells(lngRow, cElement_Name) = "Element_Name"
+    .Cells(lngRow, cElement_ID) = "Element_ID"
+    .Cells(lngRow, cElement_nodeName) = "Element_nodeName"
+    .Cells(lngRow, cElement_Type) = "Element_Type"
+    .Cells(lngRow, cElement_Value) = "Element_Value"
+    .Cells(lngRow, cElement_SetValue) = "Element_SetValue"
+  End With
+  'End Header
+  
+  'Cycle through all the forms in the document
+  For Each objForm In objForms
+    'Cycle through the input elements in the form
+    For Each objInputElement In objForm
+      lngRow = lngRow + 1
+      With ActiveSheet
+        .Cells(lngRow, cForm_name) = objForm.Name
+        .Cells(lngRow, cForm_Id) = objForm.ID
+        .Cells(lngRow, cElement_Name) = objInputElement.Name
+        .Cells(lngRow, cElement_ID) = objInputElement.ID
+        .Cells(lngRow, cElement_nodeName) = objInputElement.nodeName
+        .Cells(lngRow, cElement_Type) = objInputElement.Type
+        If objInputElement.Type = "submit" Or objInputElement.Type = "button" Then
+          .Cells(lngRow, cElement_SetValue).Interior.Color = vbBlack
+        ElseIf objInputElement.Type = "hidden" Then
+          .Cells(lngRow, cElement_SetValue).Interior.Color = vbYellow
+        End If
+        .Cells(lngRow, cElement_Value) = objInputElement.Value
+        'build a list of the possible selections for a select elements
+        If objInputElement.nodeName = "SELECT" Then
+          For Each objOption In objInputElement
+            strComment = strComment & Chr(34) & objOption.Value & Chr(34) & ": " & objOption.Text & vbNewLine
+          Next objOption
+          'place the list as a comment in the SetValue column
+          .Cells(lngRow, cElement_SetValue).AddComment strComment
+          strComment = ""
+        End If
+      End With
+    Next objInputElement
+  Next objForm
+End If
+
+Clean_Up:
+Set objInputElement = Nothing
+Set objForm = Nothing
+Set objForms = Nothing
+Set objIE = Nothing
+Exit Sub
+
+GetFields_Error:
+Debug.Print Err.Number, Err.Description
+Resume Next
+End Sub
+
+Function GetIEApp() As Object
+Dim objShell As Object
+Dim objWindows As Object
+Dim objWindow As Object
+Dim lngSingleWindow As Long
+Dim intOption As Integer
+Dim strMessage As String, strReturnValue As String
+
+Set objShell = CreateObject("Shell.Application")
+Set objWindows = objShell.Windows
+lngSingleWindow = -1
+
+For Each objWindow In objWindows
+  'Build a list of windows, make sure they are Internet Explorer
+  If Right(objWindow.FullName, 12) = "iexplore.exe" Then
+    strMessage = strMessage & intOption & " : " & objWindow.LocationName & vbCrLf
+    If lngSingleWindow = -1 Then
+      lngSingleWindow = intOption
+    Else
+      lngSingleWindow = 0
+    End If
+  End If
+  intOption = intOption + 1
+Next
+'Check if there are any IE windows
+If Len(strMessage) <> 0 Then
+  'Prompt to pick a window, used an InputBox for portability
+  If lngSingleWindow > 0 Then
+    Set GetIEApp = objWindows.Item(CLng(lngSingleWindow))
+  Else
+    strReturnValue = InputBox(strMessage, "Please select Browser window")
+    'If the user cancels the input box an empty string is returned
+    If strReturnValue <> "" Then
+      'Make sure the number selected is valid
+      If Val(strReturnValue) >= 0 And Val(strReturnValue) <= intOption Then
+        Set GetIEApp = objWindows.Item(CLng(strReturnValue))
+      End If
+    End If
+  End If
+End If
+Set objWindow = Nothing
+Set objWindows = Nothing
+Set objShell = Nothing
+End Function
+
+Public Sub ClearActiveSheet()
+ActiveSheet.UsedRange.Clear
+ActiveSheet.Cells(2, 1).Activate
+End Sub
