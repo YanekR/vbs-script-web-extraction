@@ -1,0 +1,4 @@
+MsgBox hi
+    MsgBox objIE.document.Links(2).href
+     hi = 0
+   
